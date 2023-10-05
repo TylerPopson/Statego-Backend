@@ -3,9 +3,14 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use crate::{
     models::{UserDetails},
     persistence::{
-        create_user,
+        create_user, get_user,
     },
 };
+
+#[get("/")]
+pub(crate) async fn index() -> impl Responder {
+    HttpResponse::Ok().body("Hello, cruel world")
+}
 
 #[post("/user")]
 pub(crate) async fn add_user(
@@ -22,4 +27,11 @@ pub(crate) async fn add_user(
     web::block(move || create_user(&data, email, username, password, first_name, last_name)).await??;
 
     Ok(HttpResponse::NoContent())
+}
+
+#[get("/user")]
+pub(crate) async fn get_users(data: web::Data<mysql::Pool>,) -> actix_web::Result<impl Responder> {
+    
+    let users = web::block(move || get_user(&data)).await??;
+    Ok(web::Json(users))
 }

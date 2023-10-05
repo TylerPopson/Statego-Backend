@@ -3,7 +3,7 @@ use derive_more::{Display, Error, From};
 use mysql::{params, prelude::*};
 
 use crate::models::{
-    UserDetails
+    UserResponseData, UserData
 };
 
 #[derive(Debug, Display, Error, From)]
@@ -63,6 +63,14 @@ pub fn create_user(
     }
 }
 
+pub fn get_user(pool: &mysql::Pool) -> Result<UserResponseData, PersistenceError>{
+    let mut conn = pool.get_conn()?;
+    Ok(UserResponseData{
+        user_data: select_user_data(&mut conn)?, 
+    })
+
+}
+
 fn insert_user_data(
     conn: &mut mysql::PooledConn,
     my_email: String,
@@ -85,4 +93,20 @@ fn insert_user_data(
         },
     )
     .map(|_| conn.last_insert_id())
+}
+
+fn select_user_data(conn: &mut mysql::PooledConn,) -> mysql::error::Result<Vec<UserData>> {
+    conn.query_map(
+        r"
+        SELECT id, email, username, first_name, last_name
+        FROM users
+        ",
+    |(my_id, my_email, my_username, my_first_name, my_last_name)| UserData {
+            id: my_id,
+            email: my_email,
+            username: my_username,
+            first_name: my_first_name,
+            last_name: my_last_name,
+        },
+    )
 }
