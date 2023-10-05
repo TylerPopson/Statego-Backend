@@ -53,6 +53,8 @@ async fn main() -> io::Result<()> {
         App::new()
             .app_data(shared_data.clone())
             .service(routes::add_user)
+            .service(routes::get_users)
+            .service(routes::index)
     })
     .bind(("127.0.0.1", 8080))?
     .workers(2)
