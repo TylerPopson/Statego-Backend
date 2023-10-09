@@ -1,43 +1,51 @@
-use actix_web::http::StatusCode;
-use derive_more::{Display, Error, From};
-use mysql::{params, prelude::*};
+/////////////////////////////////////////////
+/// persistence.rs
+/// 
+/// handles error checking on requests
+/// handles authentication of users
+/////////////////////////////////////////////
 
-use crate::models::{
-    UserResponseData, UserData
-};
+use actix_web::http::StatusCode;
+use bcrypt::{hash, verify, DEFAULT_COST};
+use derive_more::{Display, Error, From};
+
+use crate::models::{UserData, UserResponseData};
+
+use crate::queries::{select_password_by_username, insert_new_ueser, select_user_by_id, select_all_users};
 
 #[derive(Debug, Display, Error, From)]
 pub enum PersistenceError {
     EmptyEmail,
     EmptyUsername,
     EmptyPassword,
-
+    BcryptError(bcrypt::BcryptError),
     MysqlError(mysql::Error),
-
+    UnknownUser,
     Unknown,
 }
 
+//matches a PersistenceError to a StatusCode
 impl actix_web::ResponseError for PersistenceError {
     fn status_code(&self) -> StatusCode {
         match self {
-            PersistenceError::EmptyEmail
-            | PersistenceError::EmptyUsername
-            | PersistenceError::EmptyPassword => StatusCode::BAD_REQUEST,
-
-            PersistenceError::MysqlError(_) | PersistenceError::Unknown => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            PersistenceError::EmptyEmail => StatusCode::BAD_REQUEST,
+            PersistenceError::EmptyUsername => StatusCode::BAD_REQUEST,
+            PersistenceError::UnknownUser => StatusCode::UNAUTHORIZED,
+            PersistenceError::EmptyPassword => StatusCode::BAD_REQUEST,
+            PersistenceError::BcryptError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            PersistenceError::MysqlError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            PersistenceError::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
 
-pub fn create_user(
+pub fn create_user_verify(
     pool: &mysql::Pool,
     email: String,
     username: String,
     password: String,
     first_name: String,
-    last_name: String
+    last_name: String,
 ) -> Result<(), PersistenceError> {
     if email.replace(' ', "").trim().is_empty() {
         return Err(PersistenceError::EmptyEmail);
@@ -52,9 +60,16 @@ pub fn create_user(
     }
 
     let mut conn = pool.get_conn()?;
+    let hashed_password = hash(password, DEFAULT_COST)?;
 
-    let last_insert_id =
-        insert_user_data(&mut conn, email, username, password, first_name, last_name)?;
+    let last_insert_id = insert_new_ueser(
+        &mut conn,
+        email,
+        username,
+        hashed_password,
+        first_name,
+        last_name,
+    )?;
 
     if last_insert_id > 0 {
         Ok(())
@@ -63,50 +78,33 @@ pub fn create_user(
     }
 }
 
-pub fn get_user(pool: &mysql::Pool) -> Result<UserResponseData, PersistenceError>{
+pub fn login_user_verify(
+    pool: &mysql::Pool,
+    username: String,
+    password: String,
+) -> Result<UserData, PersistenceError> {
+    if username.replace(' ', "").trim().is_empty() {
+        return Err(PersistenceError::EmptyUsername);
+    }
+
+    if password.replace(' ', "").trim().is_empty() {
+        return Err(PersistenceError::EmptyPassword);
+    }
+
     let mut conn = pool.get_conn()?;
-    Ok(UserResponseData{
-        user_data: select_user_data(&mut conn)?, 
+    let hashed_password = select_password_by_username(&mut conn, username.clone())?;
+
+    if verify(password, &hashed_password)? {
+        Ok(select_user_by_id(&mut conn, username)?)
+    } else {
+        Err(PersistenceError::UnknownUser)
+    }
+}
+
+pub fn get_users_verify(pool: &mysql::Pool) -> Result<UserResponseData, PersistenceError> {
+    let mut conn = pool.get_conn()?;
+
+    Ok(UserResponseData {
+        user_data: select_all_users(&mut conn)?,
     })
-
-}
-
-fn insert_user_data(
-    conn: &mut mysql::PooledConn,
-    my_email: String,
-    my_username: String,
-    my_password: String,
-    my_first_name: String,
-    my_last_name: String
-) -> mysql::error::Result<u64> {
-    conn.exec_drop(
-        "
-        INSERT INTO users (email, username, pass, first_name, last_name)
-        VALUES (:email, :username,:pass, :first_name, :last_name)
-        ",
-        params! {
-            "email" => my_email,
-            "username" => my_username,
-            "pass" => my_password,
-            "first_name" => my_first_name,
-            "last_name" => my_last_name,
-        },
-    )
-    .map(|_| conn.last_insert_id())
-}
-
-fn select_user_data(conn: &mut mysql::PooledConn,) -> mysql::error::Result<Vec<UserData>> {
-    conn.query_map(
-        r"
-        SELECT id, email, username, first_name, last_name
-        FROM users
-        ",
-    |(my_id, my_email, my_username, my_first_name, my_last_name)| UserData {
-            id: my_id,
-            email: my_email,
-            username: my_username,
-            first_name: my_first_name,
-            last_name: my_last_name,
-        },
-    )
 }

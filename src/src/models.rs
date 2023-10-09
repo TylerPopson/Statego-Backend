@@ -1,3 +1,10 @@
+/////////////////////////////////////////////
+/// models.rs
+/// 
+/// data models that map to the mysql queries
+/////////////////////////////////////////////
+
+use mysql::prelude::FromRow;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -9,8 +16,8 @@ pub struct UserDetails {
     pub last_name: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct UserData{
+#[derive(Debug, Serialize, FromRow)]
+pub struct UserData {
     pub id: i32,
     pub email: String,
     pub username: String,
@@ -19,6 +26,12 @@ pub struct UserData{
 }
 
 #[derive(Debug, Serialize)]
-pub struct UserResponseData{
-    pub user_data: Vec<UserData>
+pub struct UserResponseData {
+    pub user_data: Vec<UserData>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserCredentials {
+    pub username: String,
+    pub pass: String,
 }
